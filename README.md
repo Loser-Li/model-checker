@@ -679,7 +679,7 @@ npm run start
 
 欢迎加入技术交流群，分享你的使用心得和问题反馈：
 
-![技术交流群](https://mypicture-1258720957.cos.ap-nanjing.myqcloud.com/Obsidian/20260621001813_308_6.jpg)
+![技术交流群](https://mypicture-1258720957.cos.ap-nanjing.myqcloud.com/Screenshot_20260702_121346_com.tencent.mm.jpg)
 
 ---
 
