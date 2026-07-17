@@ -11,6 +11,8 @@
 
 > 输入 API Key 和 Base URL，自动拉取模型列表并逐个验证，结果一目了然。
 
+> **来源 / 致谢**：本项目派生自 [wwwzhouhui/model-checker](https://github.com/wwwzhouhui/model-checker)，并在其基础上新增了 Cloudflare Pages（边缘运行时 + D1）部署支持。感谢原作者 [@wwwzhouhui](https://github.com/wwwzhouhui) 的工作。原项目采用 Docker / Vercel 部署；本仓库在此基础上保留双目标（Docker + Cloudflare Pages）并行可用，详见 [Cloudflare Pages 部署](#cloudflare-pages-部署)。
+
 <!-- Deploy buttons -->
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fwwwhzhouhui569%2Fmodel-checker&env=JWT_SECRET,ENCRYPTION_KEY&envDescription=Required%20environment%20variables%20for%20Model%20Checker&envLink=https%3A%2F%2Fgithub.com%2Fwwwhzhouhui569%2Fmodel-checker%23environment-variables&project-name=model-checker&repository-name=model-checker)
 
@@ -826,3 +828,12 @@ npm run start
 
 ---
 
+
+## 撰稿人 / Contributors
+
+| 贡献者 | 角色 |
+|---|---|
+| [@wwwzhouhui](https://github.com/wwwzhouhui) | 原作者 · 核心检测功能、用户系统、OAuth、Docker / Vercel 部署、UI 设计 |
+| [@Loser-Li](https://github.com/Loser-Li) | Cloudflare Pages 适配 · 边缘运行时（D1 + Web Crypto）后端、静态导出构建、部署文档 |
+
+> 本仓库派生自 [wwwzhouhui/model-checker](https://github.com/wwwzhouhui/model-checker)。如有改进欢迎提 PR，也欢迎给原项目点 Star ⭐。
