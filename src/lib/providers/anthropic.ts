@@ -1,4 +1,4 @@
-import type { NormalizedModel } from "@/types";
+import type { NormalizedModel } from "../../types";
 import type { ProviderAdapter, TestModelResult } from "./types";
 
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -30,7 +30,11 @@ export const anthropicProvider: ProviderAdapter = {
         throw new Error(`上游返回 ${res.status}${text ? `: ${text}` : ""}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as {
+        data?: { id: string; display_name?: string }[];
+        has_more?: boolean;
+        last_id?: string;
+      };
       const list: { id: string; display_name?: string }[] = data.data ?? [];
 
       for (const m of list) {
@@ -79,7 +83,7 @@ export const anthropicProvider: ProviderAdapter = {
         return { success: false, latency, error: `HTTP ${res.status}${text ? ` ${text}` : ""}` };
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as { content?: { text?: unknown }[] };
       const hasContent =
         Array.isArray(data.content) &&
         data.content.length > 0 &&

@@ -10,7 +10,9 @@ Model Checker - A Next.js web application for testing AI model availability on t
 
 **Tech Stack**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, Drizzle ORM + better-sqlite3 / pg (Postgres), jose (JWT)
 
-**Deployment**: Docker (standalone output), Vercel
+**Deployment**: Docker (standalone output), Vercel, Cloudflare Pages (static export + Pages Functions + D1)
+
+> **Dual target**: The repo maintains two backends. Docker/Vercel use the Node runtime (`src/app/api/**` + `src/lib/db/**` + better-sqlite3/pg + bcryptjs + node `crypto`). Cloudflare Pages uses the edge runtime (`functions/**` + D1 + Web Crypto + PBKDF2; `functions/api/{models,test}.ts` reuse `src/lib/providers/**`, which is pure `fetch` and edge-safe). `next.config.ts` switches `output` on `CF_PAGES` (CF→`export`, else→`standalone`). Password hashes are NOT cross-compatible (bcrypt vs PBKDF2) — fresh-deploy only. JWT (`jose`) and API-key AES-256-GCM (`iv:authTag:ciphertext`) are cross-runtime compatible given matching secrets.
 
 ---
 
@@ -21,13 +23,20 @@ Model Checker - A Next.js web application for testing AI model availability on t
 npm run dev          # Start dev server (default port 3000)
 
 # Build & Production
-npm run build        # Production build (standalone output for Docker)
-npm start           # Start production server
+npm run build        # Production build (standalone output for Docker/Vercel; CF_PAGES unset)
+
+# Cloudflare Pages
+npm run cf:build     # Static export build → out/ (sets CF_PAGES=1, excludes src/app/api)
+npm run cf:dev       # cf:build + local D1 init + wrangler pages dev
+npm run cf:deploy    # cf:build + wrangler pages deploy out
+npm run db:local:init   # Apply D1 schema locally
+npm run db:remote:init  # Apply D1 schema to remote D1
 
 # Code Quality
 npm run lint        # Run ESLint
+npm run typecheck   # tsc --noEmit
 
-# Database (Drizzle Kit)
+# Database (Drizzle Kit) — Docker/Vercel target only
 npx drizzle-kit generate    # Generate migration
 npx drizzle-kit migrate     # Run migration
 npx drizzle-kit studio      # Open Drizzle Studio
@@ -250,7 +259,7 @@ The application uses Next.js standalone output for minimal Docker images:
 - Database persists in `./data` directory (volume mount)
 - Health check: `/api/health` (30s interval, 3 retries)
 - Non-root user: `nextjs:nodejs` (1001:1001)
-- `next.config.ts` has `output: "standalone"` enabled
+- `next.config.ts` switches `output` on `CF_PAGES`: `standalone` when unset (Docker/Vercel), `export` when `CF_PAGES=1` (Cloudflare Pages)
 
 **Environment Variables** (see `.env.docker.example`):
 ```bash
@@ -262,6 +271,34 @@ LINUXDO_CLIENT_ID=...  # Optional, for LinuxDo OAuth
 LINUXDO_CLIENT_SECRET=...
 OAUTH_CALLBACK_URL=http://localhost:3000  # Optional, auto-detected from request
 ```
+
+---
+
+## Cloudflare Pages Deployment
+
+A second deployment target: Next.js static export (`out/`) + Pages Functions (`functions/`) + Cloudflare D1, all edge-runtime.
+
+**Key Files**:
+- `wrangler.toml` - Pages config + `[[d1_databases]]` binding (`DB` → matches `functions/_lib/env.ts` `Env.DB`)
+- `functions/` - Full API reimplementation on edge runtime (D1 raw SQL, Web Crypto, `jose`, PBKDF2 instead of bcrypt)
+- `functions/_lib/` - Edge-safe helpers: `db.ts` (D1), `auth.ts` (jose + PBKDF2), `crypto.ts` (Web Crypto AES-GCM, same `iv:authTag:ciphertext` format as node `src/lib/crypto.ts`), `http.ts`, `oauth.ts`, `oauth-flow.ts`
+- `migrations/0001_initial.sql` - D1 schema (separate from the Drizzle-generated `drizzle/` migrations used by the Node target)
+- `scripts/cf-build.mjs` - Sets `CF_PAGES=1`, temporarily moves `src/app/api` → `src/app/_api_legacy` (export build skips Node route handlers), runs `next build`, restores via `finally`
+
+**Configuring D1 + secrets (one-time)**:
+```bash
+npx wrangler d1 create model-checker        # fill database_id into wrangler.toml
+npm run db:remote:init                       # apply migrations/0001_initial.sql to remote D1
+npx wrangler pages project create model-checker
+# repeat for each:
+npx wrangler pages secret put JWT_SECRET     --project-name=model-checker
+npx wrangler pages secret put ENCRYPTION_KEY --project-name=model-checker
+# optional OAuth secrets: GITHUB_CLIENT_ID/SECRET, LINUXDO_CLIENT_ID/SECRET, OAUTH_CALLBACK_URL
+```
+
+**Deploy**: `npm run cf:deploy`. For Git integration set Build command `npm run cf:build`, output dir `out`. **Local preview**: `npm run cf:dev` (local D1 + `.dev.vars` for secrets). Health check: `GET /api/health` returns `{"database":"d1"}`.
+
+**Important**: `functions/api/{models,test}.ts` import `getProvider` from `src/lib/providers` (edge-safe, pure `fetch`). Keep providers free of Node APIs.
 
 ---
 

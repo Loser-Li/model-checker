@@ -1,4 +1,4 @@
-import type { NormalizedModel } from "@/types";
+import type { NormalizedModel } from "../../types";
 
 /** 模型测试结果 */
 export interface TestModelResult {

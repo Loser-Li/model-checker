@@ -16,6 +16,8 @@
 
 [![Docker Pulls](https://img.shields.io/badge/docker-pull-2496ED?logo=docker)](https://hub.docker.com/r/wwwhzhouhui569/model-checker)
 
+[![Deploy to Cloudflare](https://img.shields.io/badge/Cloudflare%20Pages-deploy-F38020?logo=cloudflare&logoColor=white)](#cloudflare-pages-部署)
+
 ---
 
 ## 项目介绍
@@ -244,7 +246,7 @@ https://your-site.com?configId=123
 
 ### Docker 架构设计
 
-项目采用 **Next.js Standalone 输出模式** 配合 **多阶段构建** 实现 Docker 部署：
+项目采用 **Next.js Standalone 输出模式**（Docker/Vercel 目标，由 `next.config.ts` 在 `CF_PAGES` 未设时启用）配合 **多阶段构建** 实现 Docker 部署：
 
 **多阶段构建流程**：
 ```
@@ -328,7 +330,7 @@ model-checker/
 ├── .env.local.example                   # 本地环境变量模板
 ├── .env.docker.example                  # Docker 环境变量模板
 ├── drizzle.config.ts                    # Drizzle 配置
-├── next.config.ts                       # Next.js 配置 (standalone 输出)
+├── next.config.ts                       # Next.js 配置（按 CF_PAGES 切换 export / standalone）
 ├── package.json                         # 项目依赖
 ├── tsconfig.json                        # TypeScript 配置
 └── CLAUDE.md                            # Claude Code 工作指南
@@ -583,6 +585,73 @@ npx drizzle-kit migrate
 npx drizzle-kit studio
 ```
 
+### Cloudflare Pages 部署
+
+除 Docker / Vercel 外，项目还支持部署到 **Cloudflare Pages**：前端为 Next.js 静态导出（`out/`），后端 API 由 `functions/` 目录下的 Pages Functions 提供，数据存储使用 Cloudflare D1（SQLite），全部运行在边缘运行时。
+
+> **关于双目标**：仓库同时维护两套后端——Docker/Vercel 走 Node 运行时（`src/app/api` + better-sqlite3/pg + bcrypt），Cloudflare Pages 走边缘运行时（`functions/` + D1 + Web Crypto + PBKDF2）。`next.config.ts` 根据 `CF_PAGES` 环境变量自动切换 `output`（CF→`export`，其余→`standalone`）。两者用户库相互独立；本项目按全新部署处理，**不迁移旧用户**（Docker 用 bcrypt、CF 用 PBKDF2，密码哈希格式不可互认）。JWT 与 API Key 加密在相同 `JWT_SECRET` / `ENCRYPTION_KEY` 下跨运行时兼容。
+
+#### 前置条件
+
+- 已安装 Node.js 18+ 与项目依赖（`npm install`）
+- 已登录 Cloudflare：`npx wrangler login`
+
+#### 步骤
+
+```bash
+# 1. 创建 D1 数据库（返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] 块）
+npx wrangler d1 create model-checker
+
+# 2. 编辑 wrangler.toml，把 database_id 占位符替换为上一步返回的真实 ID
+
+# 3. 初始化远程 D1 schema
+npm run db:remote:init
+# 等价于：wrangler d1 execute model-checker --remote --file=migrations/0001_initial.sql
+
+# 4. 设置 Pages secret（构建时与运行时都用得到）
+npx wrangler pages secret put JWT_SECRET       --project-name=model-checker
+npx wrangler pages secret put ENCRYPTION_KEY   --project-name=model-checker
+# 可选（启用 OAuth 登录时）：
+npx wrangler pages secret put GITHUB_CLIENT_ID     --project-name=model-checker
+npx wrangler pages secret put GITHUB_CLIENT_SECRET --project-name=model-checker
+npx wrangler pages secret put LINUXDO_CLIENT_ID     --project-name=model-checker
+npx wrangler pages secret put LINUXDO_CLIENT_SECRET --project-name=model-checker
+# 可选（自定义域名时，覆盖自动从请求来源推导的回调地址）
+npx wrangler pages secret put OAUTH_CALLBACK_URL --project-name=model-checker
+```
+
+> 第一次部署前需先创建 Pages 项目：`npx wrangler pages project create model-checker`（之后再用上面命令绑 secret）。也可在 Cloudflare 控制台手动创建并设置环境变量/secret。
+
+#### 部署
+
+```bash
+# 一键构建并部署
+npm run cf:deploy
+# 等价于：node scripts/cf-build.mjs && wrangler pages deploy out --project-name=model-checker
+```
+
+#### Git 集成自动部署（推荐生产用法）
+
+在 Cloudflare Pages 控制台关联仓库后，设置：
+
+- **Build command**：`npm run cf:build`
+- **Build output directory**：`out`
+- **Environment variables**：在控制台的 Settings → Environment variables 中添加上面的 secret（平台构建时自动置 `CF_PAGES=1`，无需手动设置）
+
+`cf:build` 会自动排除 Node 端的 `src/app/api`（静态导出不兼容路由处理程序，CF 的 API 由 `functions/` 提供），构建产物为纯静态前端。
+
+#### 本地预览
+
+```bash
+# 本地 D1 建表 + 静态构建 + wrangler pages dev（带本地 D1 绑定 DB）
+npm run cf:dev
+
+# 健康检查
+curl http://localhost:8788/api/health   # 返回 {"database":"d1", ...}
+```
+
+本地 secret 可写入项目根目录的 `.dev.vars`（格式同 `.env`，已被 `.gitignore` 忽略），`wrangler pages dev` 会自动加载。
+
 ### 贡献指南
 
 1. Fork 本仓库
@@ -670,6 +739,8 @@ npx drizzle-kit studio
 npm run build
 npm run start
 ```
+
+**Cloudflare Pages 部署**：见上文 [Cloudflare Pages 部署](#cloudflare-pages-部署) 小节。前端静态导出 + Pages Functions（D1）边缘运行时。
 
 </details>
 

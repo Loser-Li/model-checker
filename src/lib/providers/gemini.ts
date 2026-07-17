@@ -1,4 +1,4 @@
-import type { NormalizedModel } from "@/types";
+import type { NormalizedModel } from "../../types";
 import type { ProviderAdapter, TestModelResult } from "./types";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com";
@@ -26,7 +26,14 @@ export const geminiProvider: ProviderAdapter = {
         throw new Error(`上游返回 ${res.status}${text ? `: ${text}` : ""}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as {
+        models?: {
+          name: string;
+          displayName?: string;
+          supportedGenerationMethods?: string[];
+        }[];
+        nextPageToken?: string;
+      };
       const list: {
         name: string;
         displayName?: string;
@@ -80,7 +87,9 @@ export const geminiProvider: ProviderAdapter = {
         return { success: false, latency, error: `HTTP ${res.status}${text ? ` ${text}` : ""}` };
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as {
+        candidates?: { content?: { parts?: unknown[] } }[];
+      };
       const hasContent =
         Array.isArray(data.candidates) &&
         data.candidates.length > 0 &&

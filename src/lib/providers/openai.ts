@@ -1,4 +1,4 @@
-import type { NormalizedModel } from "@/types";
+import type { NormalizedModel } from "../../types";
 import type { ProviderAdapter, TestModelResult } from "./types";
 
 /** OpenAI 兼容接口适配器（也兼容 NewAPI 等第三方代理） */
@@ -16,7 +16,7 @@ export const openaiProvider: ProviderAdapter = {
       throw new Error(`上游返回 ${res.status}${text ? `: ${text}` : ""}`);
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as { data?: { id: string }[] };
     const list: { id: string }[] = data.data ?? [];
 
     return list.map((m) => ({ id: m.id }));
@@ -52,11 +52,13 @@ export const openaiProvider: ProviderAdapter = {
         return { success: false, latency, error: `HTTP ${res.status}${text ? ` ${text}` : ""}` };
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as {
+        choices?: { message?: { content?: unknown }; delta?: unknown }[];
+      };
+      const choices = data.choices ?? [];
       const hasContent =
-        data.choices?.length > 0 &&
-        (data.choices[0].message?.content !== undefined ||
-          data.choices[0].delta !== undefined);
+        choices.length > 0 &&
+        (choices[0].message?.content !== undefined || choices[0].delta !== undefined);
 
       return {
         success: hasContent,

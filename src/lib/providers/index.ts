@@ -1,4 +1,4 @@
-import type { Provider } from "@/types";
+import type { Provider } from "../../types";
 import type { ProviderAdapter } from "./types";
 import { openaiProvider } from "./openai";
 import { anthropicProvider } from "./anthropic";

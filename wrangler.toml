@@ -1,0 +1,11 @@
+name = "model-checker"
+compatibility_date = "2026-07-16"
+pages_build_output_dir = "out"
+
+# Cloudflare D1 数据库绑定（binding 名 "DB" 对齐 functions/_lib/env.ts 的 Env.DB）。
+# database_id 需在执行 `npx wrangler d1 create model-checker` 后用返回的 ID 替换下面的占位符。
+# 本地预览不依赖此项（preview 脚本用 --d1=DB 注入本地 D1）。
+[[d1_databases]]
+binding = "DB"
+database_name = "model-checker"
+database_id = "<填入 wrangler d1 create model-checker 的返回 ID>"

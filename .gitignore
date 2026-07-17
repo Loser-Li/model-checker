@@ -48,6 +48,10 @@ yarn-error.log*
 
 # database
 /data/
+/.wrangler/
+
+# cloudflare build stash (cf-build.mjs 临时存放 Node API 路由，构建后自动清空)
+/.cf-stash/
 
 # typescript
 *.tsbuildinfo
