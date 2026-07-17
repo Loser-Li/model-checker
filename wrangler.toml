@@ -8,4 +8,4 @@ pages_build_output_dir = "out"
 [[d1_databases]]
 binding = "DB"
 database_name = "model-checker"
-database_id = "<填入 wrangler d1 create model-checker 的返回 ID>"
+database_id = "1f670ad6-bc59-472a-ac52-7293cf84a250"
