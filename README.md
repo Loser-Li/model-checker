@@ -591,56 +591,119 @@ npx drizzle-kit studio
 
 > **关于双目标**：仓库同时维护两套后端——Docker/Vercel 走 Node 运行时（`src/app/api` + better-sqlite3/pg + bcrypt），Cloudflare Pages 走边缘运行时（`functions/` + D1 + Web Crypto + PBKDF2）。`next.config.ts` 根据 `CF_PAGES` 环境变量自动切换 `output`（CF→`export`，其余→`standalone`）。两者用户库相互独立；本项目按全新部署处理，**不迁移旧用户**（Docker 用 bcrypt、CF 用 PBKDF2，密码哈希格式不可互认）。JWT 与 API Key 加密在相同 `JWT_SECRET` / `ENCRYPTION_KEY` 下跨运行时兼容。
 
-#### 前置条件
+#### 方式一：命令行手动部署（`wrangler` CLI）
 
-- 已安装 Node.js 18+ 与项目依赖（`npm install`）
-- 已登录 Cloudflare：`npx wrangler login`
+适合本地操作、CI，或不想绑 Git 仓库的场景。
 
-#### 步骤
+**前置条件**
+
+- **Node.js ≥ 20.9**（Next.js 16 要求；用 `node -v` 检查，老版本可用 nvm 切换）
+- 已安装依赖：`npm install`
+- 已登录 Cloudflare：`npx wrangler login`（浏览器授权一次即可，凭据缓存在 `wrangler`）
+- 一个 Cloudflare 账号（免费套餐即可，D1/Pages 都有免费额度）
+
+**第 1 步：创建 D1 数据库**
 
 ```bash
-# 1. 创建 D1 数据库（返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] 块）
 npx wrangler d1 create model-checker
-
-# 2. 编辑 wrangler.toml，把 database_id 占位符替换为上一步返回的真实 ID
-
-# 3. 初始化远程 D1 schema
-npm run db:remote:init
-# 等价于：wrangler d1 execute model-checker --remote --file=migrations/0001_initial.sql
-
-# 4. 设置 Pages secret（构建时与运行时都用得到）
-npx wrangler pages secret put JWT_SECRET       --project-name=model-checker
-npx wrangler pages secret put ENCRYPTION_KEY   --project-name=model-checker
-# 可选（启用 OAuth 登录时）：
-npx wrangler pages secret put GITHUB_CLIENT_ID     --project-name=model-checker
-npx wrangler pages secret put GITHUB_CLIENT_SECRET --project-name=model-checker
-npx wrangler pages secret put LINUXDO_CLIENT_ID     --project-name=model-checker
-npx wrangler pages secret put LINUXDO_CLIENT_SECRET --project-name=model-checker
-# 可选（自定义域名时，覆盖自动从请求来源推导的回调地址）
-npx wrangler pages secret put OAUTH_CALLBACK_URL --project-name=model-checker
 ```
 
-> 第一次部署前需先创建 Pages 项目：`npx wrangler pages project create model-checker`（之后再用上面命令绑 secret）。也可在 Cloudflare 控制台手动创建并设置环境变量/secret。
+命令会输出类似：
 
-#### 部署
+```
+✅ Successfully created DB 'model-checker'
+[[d1_databases]]
+binding = "DB"
+database_name = "model-checker"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # ← 复制这个 ID
+```
+
+把返回的 `database_id` 填进项目根的 `wrangler.toml`（替换 `<填入 wrangler d1 create model-checker 的返回 ID>` 占位符），`binding`/`database_name` 保持 `DB` / `model-checker` 不变。
+
+**第 2 步：初始化远程 D1 表结构**
 
 ```bash
-# 一键构建并部署
+npm run db:remote:init
+# 等价于：wrangler d1 execute model-checker --remote --file=migrations/0001_initial.sql
+```
+
+这会建 `users` / `saved_configs` / `check_histories` 三张表。重复执行无害（用的是 `CREATE TABLE IF NOT EXISTS`）。
+
+**第 3 步：创建 Pages 项目**
+
+```bash
+npx wrangler pages project create model-checker --production
+```
+
+> 也可以跳过这步，直接在第 4 步第一次 `cf:deploy` 时按提示创建。但先建好方便绑 secret。
+
+**第 4 步：设置环境变量（secret）**
+
+必填 2 个、OAuth 可选 4 个。每条命令回车后会在终端提示你输入对应值（输入时不回显，输完回车）：
+
+```bash
+# —— 必填 ——
+npx wrangler pages secret put JWT_SECRET      --project-name=model-checker
+#   建议用 openssl rand -base64 64 生成 ≥64 字符的随机串
+
+npx wrangler pages secret put ENCRYPTION_KEY  --project-name=model-checker
+#   建议 64 位 hex：openssl rand -hex 32（非标长度会自动 SHA-256 派生，仍可用）
+
+# —— 可选（启用 GitHub / LinuxDo OAuth 登录时）——
+npx wrangler pages secret put GITHUB_CLIENT_ID      --project-name=model-checker
+npx wrangler pages secret put GITHUB_CLIENT_SECRET  --project-name=model-checker
+npx wrangler pages secret put LINUXDO_CLIENT_ID      --project-name=model-checker
+npx wrangler pages secret put LINUXDO_CLIENT_SECRET  --project-name=model-checker
+
+# —— 可选（自定义域名时；不设则自动从请求来源推导回调地址）——
+npx wrangler pages secret put OAUTH_CALLBACK_URL    --project-name=model-checker
+#   例：https://model-checker.pages.dev 或你的自定义域名
+```
+
+> 也可在 Cloudflare 控制台操作：Workers & Pages → 你的项目 → Settings → Environment variables（Production）逐个添加。secret 与普通变量的区别：secret 写入后不可再读回明文，更安全。
+
+**第 5 步：构建并部署**
+
+```bash
 npm run cf:deploy
 # 等价于：node scripts/cf-build.mjs && wrangler pages deploy out --project-name=model-checker
 ```
 
-#### Git 集成自动部署（推荐生产用法）
+`cf:build` 会临时把 Node 端的 `src/app/api` 移出构建树（静态导出不兼容路由处理程序，CF 的 API 由 `functions/` 提供），构建完自动还原。产物为 `out/` 纯静态前端 + `functions/` 边缘函数，由 `wrangler pages deploy` 一起上传。
 
-在 Cloudflare Pages 控制台关联仓库后，设置：
+部署成功后终端会给出一个 `https://<commit>.model-checker.pages.dev` 预览地址，以及生产地址 `https://model-checker.pages.dev`。
 
-- **Build command**：`npm run cf:build`
-- **Build output directory**：`out`
-- **Environment variables**：在控制台的 Settings → Environment variables 中添加上面的 secret（平台构建时自动置 `CF_PAGES=1`，无需手动设置）
+**第 6 步：验证**
 
-`cf:build` 会自动排除 Node 端的 `src/app/api`（静态导出不兼容路由处理程序，CF 的 API 由 `functions/` 提供），构建产物为纯静态前端。
+```bash
+# 健康检查（应返回 {"database":"d1"} 之类）
+curl https://model-checker.pages.dev/api/health
+```
 
-#### 本地预览
+打开站点，注册一个账号、保存一个配置、跑一次检测，确认 D1 读写正常。OAuth 若配了 secret，记得在 GitHub/LinuxDo 的 OAuth App 里把回调地址设为 `https://<你的pages域名>/api/auth/callback/github` 与 `…/linuxdo`。
+
+#### 方式二：Git 集成自动部署（推荐生产用法）
+
+把仓库连到 Cloudflare Pages，每次 `git push` 自动构建部署，无需本地装 Node/wrangler。
+
+1. Cloudflare 控制台 → **Workers & Pages** → **Create application** → **Pages** → **Connect to Git**
+2. 授权并选择你的 GitHub 仓库（如 `Loser-Li/-model-checker`）
+3. 构建设置：
+   - **Framework preset**：`Next.js`（或 None，不影响，因为我们是静态导出）
+   - **Build command**：`npm run cf:build`
+   - **Build output directory**：`out`
+   - **Root directory**：留空
+4. **Environment variables**（Settings → Environment variables，Production 与 Preview 都加）：
+   - `JWT_SECRET`、`ENCRYPTION_KEY`（必填）
+   - `GITHUB_CLIENT_ID/SECRET`、`LINUXDO_CLIENT_ID/SECRET`（可选）
+   - `OAUTH_CALLBACK_URL`（可选）
+   - 不需要手动设 `CF_PAGES`——平台构建时会自动置 `CF_PAGES=1`
+5. **D1 绑定**：同样在 Settings → **Functions** → **D1 database bindings** 里把数据库 `model-checker` 绑定为变量名 `DB`（Production 与 Preview 都要绑）
+6. 保存 → 触发一次部署。之后每次 `git push main` 自动部署生产；push 其他分支生成 Preview 部署。
+
+> Git 集成方式下，`wrangler.toml` 里的 `database_id` 不参与平台构建绑定（那是 CLI 部署用的），控制台 D1 binding 才是 Git 集成时的绑定来源。两种方式只要保证绑定名都叫 `DB` 即可。
+
+#### 本地预览（不部署，先验证）
 
 ```bash
 # 本地 D1 建表 + 静态构建 + wrangler pages dev（带本地 D1 绑定 DB）
@@ -650,7 +713,24 @@ npm run cf:dev
 curl http://localhost:8788/api/health   # 返回 {"database":"d1", ...}
 ```
 
-本地 secret 可写入项目根目录的 `.dev.vars`（格式同 `.env`，已被 `.gitignore` 忽略），`wrangler pages dev` 会自动加载。
+本地 secret 写入项目根的 `.dev.vars`（格式同 `.env`，已被 `.gitignore` 忽略），`wrangler pages dev` 会自动加载：
+
+```bash
+# .dev.vars 示例
+JWT_SECRET=dev-only-not-for-production-...
+ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+```
+
+#### 常见部署报错
+
+| 现象 | 原因与处理 |
+|---|---|
+| `You are using Node.js 16.x ... >=20.9.0 required` | 本地 Node 太旧，用 nvm 升到 20+；CF Pages 自带 Node 20+，不用担心 |
+| `Cannot find module '@tailwindcss/oxide-<platform>'` | Tailwind v4 平台二进制没装上，`npm install` 重试；CI 上确认没 `--no-optional` |
+| `/api/health` 返回 500 / `DB is undefined` | D1 未绑定或绑定名不是 `DB`；CLI 方式检查 `wrangler.toml` 的 `database_id`，Git 方式在控制台 Functions → D1 bindings 加 `DB` |
+| 构建报 `force-static not configured on route /api/...` | 没走 `cf:build` 而是直接 `next build` 且设了 `CF_PAGES=1`；务必用 `npm run cf:build`（它会把 `src/app/api` 临时移出） |
+| `wrangler pages deploy` 提示找不到项目 | 没建项目，先 `npx wrangler pages project create model-checker --production` |
+| OAuth 回调跳错地址 | 没设 `OAUTH_CALLBACK_URL` 导致用了请求来源推导；设成正式 `https://<pages域名>` |
 
 ### 贡献指南
 
