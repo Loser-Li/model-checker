@@ -5,7 +5,9 @@ import { cookie, getCookie } from "./http";
 
 const TOKEN_NAME = "token";
 const TOKEN_MAX_AGE = 60 * 60 * 24 * 7;
-const PASSWORD_ITERATIONS = 210_000;
+// Cloudflare Workers currently rejects PBKDF2 requests above 100,000 iterations.
+// Keep this at the platform limit so registration works in Pages Functions.
+const PASSWORD_ITERATIONS = 100_000;
 
 export interface SessionUser {
   userId: number;
@@ -60,6 +62,7 @@ export async function verifyPassword(password: string, encoded: string): Promise
     algorithm !== "pbkdf2-sha256" ||
     !Number.isSafeInteger(iterations) ||
     iterations < 100_000 ||
+    iterations > PASSWORD_ITERATIONS ||
     !saltRaw ||
     !expectedRaw
   ) {
